@@ -1,18 +1,57 @@
+
+#!/bin/sh
+
+# get the percentage used of nfsstorage:
+df -Ph | grep -vE '^Filesystem|tmpfs|cdrom' | grep nfsstorage | awk '{print $5,$6}' | while read output; 
+do
+
+  # set variables
+  USED=$(echo $output | awk '{print $1}' | sed s/%//g)
+  PARTITION=$(echo $output | awk '{print $2}')
+  MESSAGE="$(date): The partition $PARTITION on $(hostname) uses $USED% of the disk space"
+
+  # check usage if greater than or equal
+  if [ $USED -ge 90 ]; then
+
+    # write to log file
+    echo $MESSAGE >> /var/log/replication/disk_usage.log
+
+    # send a mail to root@linux1.localdomain
+    echo $MESSAGE | mail -s "Disk Space Alert: $USED% used on $PARTITION" linuser
+
+  fi
+
+done
+
+restore_file
 # functions to restore a file that has been deleted.
 
 filelist={}
 
+# function to pause execution
+function enter { 
+
+   echo
+   echo "Press any key to continue ..."
+   read
+
+}
+
 # get the list of deleted files
 function get_list {
+
    cnt=0   
+
    for f in $(find /recovery/ -type f -user $USER); 
    do
+
       file=${f##*/}
 #      echo $file
       filelist[cnt]=$file
       ((cnt++))
+
    done
-#   echo "$cnt files processed"
+
 }
 
 # display retrieved filename in list 
@@ -21,6 +60,11 @@ function display_files {
    # first get the list
    get_list
    
+   clear   
+   echo
+   echo "You have deleted the following files:" 
+   echo
+
    #reset counter 
    cnt=1   
    # now display it
@@ -31,16 +75,114 @@ function display_files {
 #      echo "file found: $file"
       filename="$(basename -- $file)" 
       dirname="$(dirname $file)" 
+
       if [[ $dirname =~ "moved." ]];
-      then    
+      then
          moved="moved to Cloud"
          dirname="${dirname#*moved.}"
-      else    
+      else
          moved=""
-      fi      
-      echo "$cnt.   $filename   $dirname   $moved" 
-      ((cnt++)) 
+      fi
+      echo "$cnt.   $dirname   $filename   $moved"
+      ((cnt++))
    done
 }
 
-display_files
+function restore_file {
+
+   display_files
+
+   echo
+   echo "Which file do you want to restore?"
+   echo -n "(Enter number) "
+   read -n 1 selection
+
+   orig_file=${filelist[((selection-1))]}
+   file=$(echo $(echo $orig_file | sed 's/*/\//g'))
+
+   if [[ $file =~ "moved." ]];
+   then
+      echo
+      echo
+      echo "Your file must be retrieved from the cloud."
+      filename="${orig_file#*moved.}"
+      mv /recovery/$orig_file /recovery/.requests/$filename
+      echo "The system will restore the file within a few minutes."
+      enter
+   else
+      echo
+      echo
+      echo "$file will be restored"
+      mv /recovery/${filelist[((selection-1))]} /mnt/nfs$file
+      if [ $? = 0 ];
+      then
+         echo
+         echo "Your file has been restored."
+      else
+         echo
+         echo "An error occured while restoring $file"
+      fi
+      enter
+
+   fi
+
+}
+
+# this function displays the menu
+function display_menu {
+
+   clear
+   echo "------- Restore File -------"
+   echo
+   echo "   1. List deleted files"
+   echo "   2. Restore deleted file"
+   echo
+   echo " --------------------------"
+   echo "   q. quit"
+   echo "----------------------------"
+   echo
+   echo -n "What do you want? "
+   read -n 1 option
+
+}
+
+function main {
+
+   display_menu
+
+   done="no"
+
+   while [ $done = "no" ];
+   do
+
+     case $option in
+
+        1)
+           display_files
+           enter
+           main
+        ;;
+
+        2)
+           restore_file
+           main
+        ;;
+
+        q)
+           done="yes"
+        ;;
+
+        *)
+           main
+        ;;
+
+     esac
+
+   done
+
+   clear
+   exit
+
+}
+
+main
