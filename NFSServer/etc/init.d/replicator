@@ -1,0 +1,53 @@
+#! /bin/bash
+#
+# replicator    start/stop replicator service
+#
+# chkconfig: 2345 10 90
+# description: Activates/Deactivates replicator
+#
+### BEGIN INIT INFO
+# Provides: Replicator service
+# Should-start: Replicator
+# Short-Description: Replicator
+# Description: Replicator for /var/nfsstorage
+### END INIT INFO
+# Source function library.
+. /etc/init.d/functions
+case "$1" in
+
+start)
+
+  # start replicator service in background
+  /opt/replication/replicator &
+  echo $! > /var/replicator.pid
+  echo "$(date): Replicator started. $(cat /etc/replication/replication.config |grep replicate)" >> /var/log/replication.log
+  ;;
+
+stop)
+
+  # get the process id as stored in /var
+  ppid=$(cat /var/replicator.pid)
+
+  # get the child processes
+  children=$(echo $(ps -o pid --no-headers --ppid $ppid))
+
+  # kill the parent bash first
+  # kill -9 $ppid - not necessary, it's enough to kill the children?
+
+  # now kill the (orphaned) children
+  for c in $children
+  do
+    kill -9 $c
+  done
+  echo "$(date): Replicator stopped." >> /var/log/replication.log
+  ;;
+
+*)
+
+  echo $"Usage: {start|stop}"
+  exit 2
+  ;;
+
+esac
+
+exit $rc
