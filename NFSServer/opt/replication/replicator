@@ -1,0 +1,133 @@
+#!/usr/bin/bash
+
+# include config with variables for replication and logging
+. /etc/replication/replication.config
+
+deleted="/var/nfsstorage/.deleted/"
+moved="/var/nfsstorage/.moved/"
+move_pref="moved."
+
+# inotifywait listens for events 'create', 'modify' and 'delete'
+inotifywait -m /var/nfsstorage -e create,modify,delete,move -r |
+
+# each time a file or a directory is created, modified or deleted
+# read directory, action and file/directory
+while read dir action file
+do
+
+  case "$action" in
+  'CREATE,ISDIR')
+     # a directory has been created ($file contains name dir)
+
+     # copy the directory
+     cp -pr $dir$file/ $replicate_to$dir$file/
+     # write to the log
+     echo "$(date): $action - $dir$file/ created" >> $event_log
+     ;;
+
+  'DELETE,ISDIR')
+     # a directory has been removed
+
+     # remove the directory
+     rmdir $replicate_to$dir$file
+     # write to the log
+     echo "$(date): $action - directory $dir$file removed" >> $event_log
+     ;;
+
+  'MOVED_TO,ISDIR')
+     # a directory has been renamed or moved
+
+     # copy recursively, the dir may contain files and/or subdirs
+     cp -pr $dir$file $replicate_to$dir$file
+     # writo to log
+     echo "$(date): $action - directory has been renamed or move to $dir$file" >> $event_log
+     ;;
+
+  'MOVED_FROM,ISDIR')
+     # a directory has ben moved or renamed - remove old situation
+
+     # remove the renamed or moved directory on replication site
+     rm -rf $replicate_to$dir$file
+     # write to log
+     echo "$(date); $action - $dir$file has been renamed or moved" >> $event_log
+     ;;
+
+  'MOVED_TO')
+     # a file has been renamed or moved - this is the result
+
+     # create the file
+     if [[ ! -d $replicate_to$dir ]]
+     then
+       # create the directory
+       mkdir -p $dir
+       # write to the log
+       echo "$(date): $action - creating $dir" >> $event_log
+     fi
+     cp -p $dir$file $replicate_to$dir$file
+     # write to the log
+     echo "$(date): $action - file had been renamed or moved to $dir$file" >> $event_log
+     ;;
+
+  'MOVED_FROM')
+     # a file has been moved or renamed - remove old situation
+
+     # remove the renamed or moved file
+     rm -f $replicate_to$dir$file
+     # write to log
+     echo "$(date): $action - $dir$file renamed or moved" >> $event_log
+     ;;
+
+  'DELETE')
+     # a file is deleted
+
+     # first check whether the file hasn't been moved to S3
+     filename=$(echo $(echo $dir$file | sed 's/\//*/g'))
+     echo "checking $replicate_to$moved$move_pref$filename" >> $event_log
+     if [ -f $replicate_to$moved$move_pref$filename ];
+     then
+        # move the stub to .deleted
+        mv $replicate_to$moved$move_pref$filename $replicate_to$deleted$move_pref$filename
+        echo "$(date): $action - stub of deleted file moved to $replicate_to$deleted as $move_pref$filename" >> $event_log
+     else
+        # move the file
+        mv $replicate_to$dir$file $replicate_to$deleted$filename
+        # write to the log
+        echo "$(date): $action - deleted file $dir$file moved to $replicate_to$deleted as $filename" >> $event_log
+     fi
+     ;;
+
+  'CREATE')
+     # a file is created or modified
+
+     # copy the file
+     if [[ ! -d $replicate_to$dir ]]
+     then
+       mkdir -p $dir
+       echo "$(date): $action - creating $dir" >> $event_log
+     fi
+     cp -p $dir$file $replicate_to$dir$file
+     # write to the log
+     echo "$(date): $action - $dir$file created or modified" >> $event_log
+     ;;
+
+  'MODIFY')
+     # a file is created or modified
+
+     # copy the file
+     if [[ ! -d $replicate_to$dir ]]
+     then
+       mkdir -p $dir
+       echo "$(date): $action - creating $dir" >> $event_log
+     fi
+     cp -p $dir$file $replicate_to$dir$file
+     # write to the log
+     echo "$(date): $action - $dir$file created or modified" >> $event_log
+     ;;
+
+   *)
+     echo "Unsupported action $action on $dir$file" >> /var/log/replication_exceptions.log
+     ;;
+
+  esac
+
+done # while read
