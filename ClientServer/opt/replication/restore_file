@@ -1,0 +1,46 @@
+# functions to restore a file that has been deleted.
+
+filelist={}
+
+# get the list of deleted files
+function get_list {
+   cnt=0   
+   for f in $(find /recovery/ -type f -user $USER); 
+   do
+      file=${f##*/}
+#      echo $file
+      filelist[cnt]=$file
+      ((cnt++))
+   done
+#   echo "$cnt files processed"
+}
+
+# display retrieved filename in list 
+function display_files {
+
+   # first get the list
+   get_list
+   
+   #reset counter 
+   cnt=1   
+   # now display it
+   for f in "${filelist[@]}";
+   do
+#      echo $f 
+      file=$(echo $(echo $f | sed 's/*/\//g'))
+#      echo "file found: $file"
+      filename="$(basename -- $file)" 
+      dirname="$(dirname $file)" 
+      if [[ $dirname =~ "moved." ]];
+      then    
+         moved="moved to Cloud"
+         dirname="${dirname#*moved.}"
+      else    
+         moved=""
+      fi      
+      echo "$cnt.   $filename   $dirname   $moved" 
+      ((cnt++)) 
+   done
+}
+
+display_files
